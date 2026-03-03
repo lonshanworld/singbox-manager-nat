@@ -1,0 +1,17 @@
+# Binaries
+singbox-manager
+singbox-manager.exe
+singbox-manager-linux
+
+# Environment variables
+.env
+
+# Editor directories and files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Temporary/testing files
+hash.go
+tmp_hash.exe

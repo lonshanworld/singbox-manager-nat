@@ -1,0 +1,89 @@
+{
+  "log": {
+    "disabled": false,
+    "level": "warn",
+    "timestamp": true
+  },
+  "experimental": {
+    "cache_file": {
+      "enabled": true,
+      "path": "/etc/sing-box/cache.db"
+    },
+    "clash_api": {
+      "external_controller": "0.0.0.0:9090",
+      "secret": "mysecret"
+    }
+  },
+  "inbounds": [
+    {
+      "type": "vless",
+      "tag": "vless-inbound",
+      "listen": "::",
+      "listen_port": 2371,
+      "users": [
+        {
+          "uuid": "90e9aebc-e0cd-48b4-a45d-38cb20f468c7",
+          "name": "user_one"
+        },
+        {
+          "uuid": "a1b2c3d4-e5f6-4a5b-b6c7-d8e9f0a1b2c3",
+          "name": "user_two"
+        }
+      ],
+      "tls": {
+        "enabled": true,
+        "server_name": "www.google.com",
+        "reality": {
+          "enabled": true,
+          "handshake": {
+            "server": "www.google.com",
+            "server_port": 443
+          },
+          "private_key": "SFDmBHqJCDvxYsYrFmU40e8mV3sbyZ_wnfn3jPNBZWM",
+          "short_id": [
+            "0ebed78e68d7bc07"
+          ]
+        }
+      },
+      "sniff": true,
+      "sniff_timeout": "300ms"
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "direct",
+      "tag": "direct"
+    },
+    {
+      "type": "block",
+      "tag": "block"
+    },
+    {
+      "type": "direct",
+      "tag": "outbound_user_one"
+    },
+    {
+      "type": "direct",
+      "tag": "outbound_user_two"
+    }
+  ],
+  "route": {
+    "rules": [
+      {
+        "auth_user": [
+          "user_one"
+        ],
+        "action": "route",
+        "outbound": "outbound_user_one"
+      },
+      {
+        "auth_user": [
+          "user_two"
+        ],
+        "action": "route",
+        "outbound": "outbound_user_two"
+      }
+    ],
+    "final": "direct"
+  }
+}

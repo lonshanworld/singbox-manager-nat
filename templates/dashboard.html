@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - Singbox Manager</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <div>
+                <h1>Singbox Manager</h1>
+                <p class="text-muted">Server IP: {{.ServerIP}}</p>
+            </div>
+            <div class="header-right">
+                <form action="/logout" method="POST" style="margin: 0;">
+                    <button type="submit" class="btn btn-danger">Logout</button>
+                </form>
+            </div>
+        </div>
+
+        <div class="system-controls">
+            <div style="flex-grow: 1; display: flex; align-items: center; gap: 1rem;">
+                <strong>Sing-box Status:</strong>
+                {{if .SingboxRunning}}
+                <span class="status-badge status-active">Running</span>
+                {{else}}
+                <span class="status-badge status-blocked">Stopped</span>
+                {{end}}
+            </div>
+            <div style="display: flex; gap: 0.5rem;">
+                <form action="/system/start_singbox" method="POST"><button type="submit"
+                        class="btn btn-sm btn-primary">Start</button>
+                </form>
+                <form action="/system/stop_singbox" method="POST"><button type="submit"
+                        class="btn btn-sm btn-danger">Stop</button></form>
+                <form action="/system/restart_singbox" method="POST"><button type="submit" class="btn btn-sm"
+                        style="background:#4b5563;color:white;">Restart</button></form>
+            </div>
+        </div>
+
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-title">Total Users</div>
+                <div class="stat-value">{{.TotalUsers}}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-title">Active Users</div>
+                <div class="stat-value" style="color:var(--success)">{{.ActiveUsers}}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-title">Blocked Users</div>
+                <div class="stat-value" style="color:var(--danger)">{{.BlockedUsers}}</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-title">Active Port</div>
+                <div class="stat-value">2371</div>
+            </div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <h2>Users</h2>
+                <a href="#add-user-modal" class="btn btn-primary">+ Add User</a>
+            </div>
+            <div class="table-responsive">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Username</th>
+                            <th>Usage (GB)</th>
+                            <th>Limit (GB)</th>
+                            <th>Created At</th>
+                            <th>Expires At</th>
+                            <th>Status</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {{range .Users}}
+                        <tr class="user-row {{if eq .Status " blocked"}}status-blocked-row{{end}}"
+                            data-username="{{.Username}}" data-limit="{{.DataLimitGB}}" data-used="{{.UsedBytes}}"
+                            data-expire="{{if .ExpireDate}}{{.ExpireDate.Format " 2006-01-02"}}{{end}}">
+                            <td style="font-weight: 500;">{{.Username}}</td>
+                            <td>
+                                <span class="usage-gb" data-bytes="{{.UsedBytes}}">0.00</span>
+                            </td>
+                            <td>{{.DataLimitGB}}</td>
+                            <td class="text-muted" style="font-size: 0.85rem;">{{.CreatedAt.Format "2006-01-02"}}</td>
+                            <td class="text-muted" style="font-size: 0.85rem;">{{if .ExpireDate}}{{.ExpireDate.Format
+                                "2006-01-02"}}{{else}}Never{{end}}</td>
+                            <td>
+                                {{if eq .Status "active"}}
+                                <span class="status-badge status-active">Active</span>
+                                {{else}}
+                                <span class="status-badge status-blocked">Blocked</span>
+                                {{end}}
+                            </td>
+                            <td>
+                                <div class="flex gap-2">
+                                    <button onclick="copySub(event, '{{.Username}}')" class="btn btn-sm btn-primary"
+                                        title="Copy Sub Link">🔗 Sub</button>
+                                    <button onclick="copyLink(event, '{{.Username}}')" class="btn btn-sm btn-primary"
+                                        title="Copy URL">🔗 Link</button>
+
+                                    <form action="/users/reset" method="POST" style="margin:0;">
+                                        <input type="hidden" name="username" value="{{.Username}}">
+                                        <button type="submit" class="btn btn-sm"
+                                            style="background:var(--success);color:white;" title="Reset Traffic">🔄
+                                            Reset</button>
+                                    </form>
+
+                                    <form action="/users/delete" method="POST" style="margin:0;"
+                                        onsubmit="return confirm('Delete user {{.Username}}?');">
+                                        <input type="hidden" name="username" value="{{.Username}}">
+                                        <button type="submit" class="btn btn-sm btn-danger"
+                                            title="Delete User">🗑️</button>
+                                    </form>
+
+                                    {{if eq .Status "blocked"}}
+                                    <form action="/users/activate" method="POST" style="margin:0;">
+                                        <input type="hidden" name="username" value="{{.Username}}">
+                                        <button type="submit" class="btn btn-sm btn-primary"
+                                            style="background:var(--success); border:none;" title="Activate User">✅
+                                            Activate</button>
+                                    </form>
+                                    {{end}}
+                                </div>
+                            </td>
+                        </tr>
+                        {{else}}
+                        <tr>
+                            <td colspan="7" class="text-center text-muted" style="padding: 2rem;">No users found. Create
+                                one to get started.</td>
+                        </tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add User Modal -->
+    <div id="add-user-modal" class="modal">
+        <div class="modal-content">
+            <a href="#" class="modal-close">&times;</a>
+            <h2>Add New User</h2>
+            <form action="/users/add" method="POST" class="form-group" style="margin-top: 1.5rem;">
+                <div>
+                    <label class="text-muted"
+                        style="font-size: 0.85rem; margin-bottom: 0.5rem; display: block;">Username</label>
+                    <input type="text" name="username" required pattern="[A-Za-z0-9_-]+"
+                        title="Alphanumeric, dash, and underscore only">
+                </div>
+                <div>
+                    <label class="text-muted" style="font-size: 0.85rem; margin-bottom: 0.5rem; display: block;">Data
+                        Limit (GB)</label>
+                    <input type="number" name="data_limit_gb" required value="50" min="1">
+                </div>
+                <div>
+                    <label class="text-muted" style="font-size: 0.85rem; margin-bottom: 0.5rem; display: block;">Expire
+                        Date (Optional)</label>
+                    <input type="date" name="expire_date">
+                </div>
+                <button type="submit" class="btn btn-primary btn-block" style="margin-top: 1rem;">Create User</button>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // Color rows based on status/limit/expiry
+        function highlightRows() {
+            const now = new Date();
+            const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+            document.querySelectorAll('.user-row').forEach(row => {
+                const used = parseInt(row.getAttribute('data-used') || "0");
+                const limitGb = parseInt(row.getAttribute('data-limit') || "0");
+                const expireStr = row.getAttribute('data-expire');
+                const limitBytes = limitGb * 1024 * 1024 * 1024;
+
+                let isExpired = false;
+                if (expireStr) {
+                    const expDate = new Date(expireStr);
+                    if (today > expDate) {
+                        isExpired = true;
+                    }
+                }
+
+                if (used >= limitBytes || isExpired) {
+                    row.style.background = "#4c1d95"; // Dark purple
+                    row.style.color = "white";
+                }
+            });
+        }
+
+        // Convert bytes to GB on page load
+        document.querySelectorAll('.usage-gb').forEach(el => {
+            const bytes = parseInt(el.getAttribute('data-bytes') || "0");
+            const gb = (bytes / (1024 * 1024 * 1024)).toFixed(3);
+            el.textContent = gb;
+        });
+
+        // Run highlightRows on page load
+        document.addEventListener('DOMContentLoaded', highlightRows);
+
+        // Copy subscription link
+        async function copySub(event, username) {
+            const btn = event.currentTarget;
+            try {
+                const response = await fetch(`/subscription/${username}`);
+                const text = await response.text();
+                await navigator.clipboard.writeText(text);
+                const oldText = btn.textContent;
+                btn.textContent = "✅ Copied";
+                setTimeout(() => btn.textContent = oldText, 2000);
+            } catch (err) {
+                alert("Failed to copy link: " + err);
+            }
+        }
+
+        async function copyLink(event, username) {
+            const btn = event.currentTarget;
+            try {
+                const url = `http://{{.SubscriptionDomain}}/subscription/${username}`;
+                await navigator.clipboard.writeText(url);
+                const oldText = btn.textContent;
+                btn.textContent = "✅ Copied";
+                setTimeout(() => btn.textContent = oldText, 2000);
+            } catch (err) {
+                alert("Failed to copy link: " + err);
+            }
+        }
+    </script>
+</body>
+
+</html>
