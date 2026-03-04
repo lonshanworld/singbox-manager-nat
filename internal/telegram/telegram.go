@@ -36,36 +36,44 @@ func (b *Bot) Start() {
 	log.Printf("Telegram Bot: Started as @%s", b.api.Self.UserName)
 
 	for update := range updates {
-		if update.Message == nil {
-			continue
-		}
+		go func(upd tgbotapi.Update) {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("Telegram Bot: Recovered from panic: %v", r)
+				}
+			}()
 
-		if !update.Message.IsCommand() {
-			// Check if they pasted a VLESS link directly without a command
-			text := strings.TrimSpace(update.Message.Text)
-			if strings.HasPrefix(text, "vless://") {
-				msg := tgbotapi.NewMessage(update.Message.Chat.ID, b.handleBind(update.Message.Chat.ID, text))
-				b.api.Send(msg)
+			if upd.Message == nil {
+				return
 			}
-			continue
-		}
 
-		msg := tgbotapi.NewMessage(update.Message.Chat.ID, "")
+			if !upd.Message.IsCommand() {
+				// Check if they pasted a VLESS link directly without a command
+				text := strings.TrimSpace(upd.Message.Text)
+				if strings.HasPrefix(text, "vless://") {
+					msg := tgbotapi.NewMessage(upd.Message.Chat.ID, b.handleBind(upd.Message.Chat.ID, text))
+					b.api.Send(msg)
+				}
+				return
+			}
 
-		switch update.Message.Command() {
-		case "start":
-			msg.Text = "Welcome to Singbox Manager Bot!\n\nTo link your account:\n1. Copy your VLESS link from the dashboard.\n2. Paste it here (or just send your UUID).\n3. Use /usage to check your data anytime."
-		case "bind":
-			msg.Text = b.handleBind(update.Message.Chat.ID, update.Message.CommandArguments())
-		case "usage":
-			msg.Text = b.handleUsage(update.Message)
-		default:
-			msg.Text = "I don't know that command."
-		}
+			msg := tgbotapi.NewMessage(upd.Message.Chat.ID, "")
 
-		if _, err := b.api.Send(msg); err != nil {
-			log.Printf("Telegram Bot: Error sending message: %v", err)
-		}
+			switch upd.Message.Command() {
+			case "start":
+				msg.Text = "Welcome to Singbox Manager Bot!\n\nTo link your account:\n1. Copy your VLESS link from the dashboard.\n2. Paste it here (or just send your UUID).\n3. Use /usage to check your data anytime."
+			case "bind":
+				msg.Text = b.handleBind(upd.Message.Chat.ID, upd.Message.CommandArguments())
+			case "usage":
+				msg.Text = b.handleUsage(upd.Message)
+			default:
+				msg.Text = "I don't know that command."
+			}
+
+			if _, err := b.api.Send(msg); err != nil {
+				log.Printf("Telegram Bot: Error sending message: %v", err)
+			}
+		}(update)
 	}
 }
 
@@ -100,6 +108,16 @@ func (b *Bot) handleBind(chatID int64, input string) string {
 
 	if targetUser == nil {
 		return "Error: Could not find an account with that UUID or link. Please check your data."
+	}
+
+	// Check for existing bindings to prevent impersonation or duplicate binds
+	for i := range users {
+		if users[i].TelegramID == chatID && users[i].Username != targetUser.Username {
+			return "Error: Your Telegram account is already bound to another VPN user. Contact admin to unbind."
+		}
+		if users[i].UUID == uuid && users[i].TelegramID != 0 && users[i].TelegramID != chatID {
+			return "Error: This VPN account is already bound to another Telegram account."
+		}
 	}
 
 	// Update user with Telegram ID

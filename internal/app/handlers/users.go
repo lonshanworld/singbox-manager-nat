@@ -70,7 +70,9 @@ func (h *UserHandler) PostAddUser(c fiber.Ctx) error {
 	setts, _ := h.db.GetSettings()
 	if err := config.GenerateConfig(users, setts, "/etc/sing-box/config.json"); err != nil {
 		log.Printf("Failed to generate config: %v", err)
-		return c.Status(500).SendString("Failed to generate config")
+		// Rollback user addition to keep state consistent
+		h.db.DeleteUser(username)
+		return c.Status(500).SendString("System error: failed to update VPN config")
 	}
 	system.RestartSingbox()
 
@@ -88,8 +90,13 @@ func (h *UserHandler) PostDeleteUser(c fiber.Ctx) error {
 	// Regenerate Config and Restart Sing-box
 	newUsers, _ := h.db.GetUsers()
 	setts, _ := h.db.GetSettings()
-	config.GenerateConfig(newUsers, setts, "/etc/sing-box/config.json")
-	system.RestartSingbox()
+	if err := config.GenerateConfig(newUsers, setts, "/etc/sing-box/config.json"); err != nil {
+		log.Printf("Failed to generate config after delete: %v", err)
+		return c.Status(500).SendString("System error: failed to update VPN config")
+	}
+	if err := system.RestartSingbox(); err != nil {
+		log.Printf("Failed to restart sing-box after delete: %v", err)
+	}
 
 	return c.Redirect().To("/dashboard")
 }
@@ -111,8 +118,13 @@ func (h *UserHandler) PostResetUsage(c fiber.Ctx) error {
 	// Regenerate Config and Restart Sing-box
 	users, _ := h.db.GetUsers()
 	setts, _ := h.db.GetSettings()
-	config.GenerateConfig(users, setts, "/etc/sing-box/config.json")
-	system.RestartSingbox()
+	if err := config.GenerateConfig(users, setts, "/etc/sing-box/config.json"); err != nil {
+		log.Printf("Failed to generate config after reset: %v", err)
+		return c.Status(500).SendString("System error: failed to update VPN config")
+	}
+	if err := system.RestartSingbox(); err != nil {
+		log.Printf("Failed to restart sing-box after reset: %v", err)
+	}
 
 	return c.Redirect().To("/dashboard")
 }
@@ -131,8 +143,13 @@ func (h *UserHandler) PostReactivateUser(c fiber.Ctx) error {
 	// Regenerate Config and Restart Sing-box
 	users, _ := h.db.GetUsers()
 	setts, _ := h.db.GetSettings()
-	config.GenerateConfig(users, setts, "/etc/sing-box/config.json")
-	system.RestartSingbox()
+	if err := config.GenerateConfig(users, setts, "/etc/sing-box/config.json"); err != nil {
+		log.Printf("Failed to generate config after reactivate: %v", err)
+		return c.Status(500).SendString("System error: failed to update VPN config")
+	}
+	if err := system.RestartSingbox(); err != nil {
+		log.Printf("Failed to restart sing-box after reactivate: %v", err)
+	}
 
 	return c.Redirect().To("/dashboard")
 }

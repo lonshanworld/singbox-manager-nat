@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"github.com/gofiber/fiber/v3"
+	"github.com/gofiber/fiber/v3/middleware/recover"
 	"github.com/gofiber/template/html/v3"
 
 	"singbox-manager/internal/app/routes"
@@ -118,6 +119,9 @@ func main() {
 	app := fiber.New(fiber.Config{
 		Views: engine,
 	})
+
+	// Recover from panics
+	app.Use(recover.New())
 
 	// Setup Routes
 	routes.SetupRoutes(app, db)

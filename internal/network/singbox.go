@@ -16,7 +16,7 @@ type ClashProxies struct {
 
 // GetUserUsage queries the sing-box Clash API for a specific user's traffic
 func GetUserUsage(address string, secret string, username string) (int64, error) {
-	client := &http.Client{Timeout: 2 * time.Second}
+	client := &http.Client{Timeout: 5 * time.Second}
 	url := fmt.Sprintf("http://%s/proxies", address)
 	
 	req, err := http.NewRequest("GET", url, nil)
@@ -63,7 +63,7 @@ type ClashTraffic struct {
 
 // GetTraffic queries the sing-box Clash API for real-time traffic throughput
 func GetTraffic(address string, secret string) (int64, int64, error) {
-	client := &http.Client{Timeout: 2 * time.Second}
+	client := &http.Client{Timeout: 5 * time.Second}
 	url := fmt.Sprintf("http://%s/traffic", address)
 
 	req, err := http.NewRequest("GET", url, nil)

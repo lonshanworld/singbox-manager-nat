@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"singbox-manager/internal/config"
-	"singbox-manager/internal/models"
 	"singbox-manager/internal/network"
 	"singbox-manager/internal/store"
 	"singbox-manager/internal/system"
@@ -23,6 +22,10 @@ func NewScheduler(store *store.Store) *Scheduler {
 
 // Start begins background tasks
 func (s *Scheduler) Start() {
+	// Run once immediately on startup to sync state
+	go func() {
+		s.PollUsageOnce()
+	}()
 	go s.runUsagePoller()
 	go s.runMonthlyReset()
 }
@@ -45,8 +48,13 @@ func (s *Scheduler) PollUsageOnce() {
 		return
 	}
 
+	settings, err := s.store.GetSettings()
+	if err != nil {
+		log.Printf("Scheduler: Failed to get settings: %v", err)
+		return
+	}
+
 	needsSingboxRestart := false
-	var activeUsers []models.User // for config generation
 
 	for _, u := range users {
 		if u.Status != "active" {
@@ -59,73 +67,98 @@ func (s *Scheduler) PollUsageOnce() {
 		if u.ExpireDate != nil {
 			userExp := time.Date(u.ExpireDate.Year(), u.ExpireDate.Month(), u.ExpireDate.Day(), 0, 0, 0, 0, u.ExpireDate.Location())
 			if today.After(userExp) {
-				log.Printf("Scheduler: User %s expired on %s.", u.Username, u.ExpireDate.Format("2006-01-02"))
-				u.Status = "blocked"
-				needsSingboxRestart = true
-
+				log.Printf("Scheduler: User %s expired on %s. Blocking.", u.Username, u.ExpireDate.Format("2006-01-02"))
 				s.store.UpdateUser(u.Username, func(dbU *models.User) {
 					dbU.Status = "blocked"
 				})
+				needsSingboxRestart = true
 				continue
 			}
 		}
 
 		// Get user usage from sing-box Clash API
-		settings, _ := s.store.GetSettings()
 		currentBytes, err := network.GetUserUsage(settings.ClashAPIAddress, settings.ClashAPISecret, u.Username)
 		if err != nil {
 			log.Printf("Scheduler: Failed to get user %s usage: %v", u.Username, err)
-			activeUsers = append(activeUsers, u)
-			continue
+			continue // keep user active, try again next poll
 		}
 
-		// Calculate increment
+		// Calculate increment (handle sing-box restarts resetting counters)
 		increment := int64(0)
 		if currentBytes >= u.LastSeenBytes {
 			increment = currentBytes - u.LastSeenBytes
 		} else {
-			// sing-box restarted, reset counter
+			// Counter reset (sing-box restarted) — count from 0
 			increment = currentBytes
 		}
 
-		u.UsedBytes += increment
-		u.LastSeenBytes = currentBytes
-
+		newUsedBytes := u.UsedBytes + increment
 		limitBytes := int64(u.DataLimitGB) * 1024 * 1024 * 1024
 
-		if u.UsedBytes >= limitBytes {
-			log.Printf("Scheduler: User %s reached data limit. Blocking user.", u.Username)
-			u.Status = "blocked"
+		if newUsedBytes >= limitBytes {
+			log.Printf("Scheduler: User %s reached data limit (%d GB). Blocking.", u.Username, u.DataLimitGB)
+			s.store.UpdateUser(u.Username, func(dbU *models.User) {
+				dbU.UsedBytes = newUsedBytes
+				dbU.LastSeenBytes = currentBytes
+				dbU.Status = "blocked"
+			})
 			needsSingboxRestart = true
 		} else {
-			activeUsers = append(activeUsers, u)
+			s.store.UpdateUser(u.Username, func(dbU *models.User) {
+				dbU.UsedBytes = newUsedBytes
+				dbU.LastSeenBytes = currentBytes
+			})
 		}
-
-		// Save updated user to DB
-		s.store.UpdateUser(u.Username, func(dbU *models.User) {
-			dbU.UsedBytes = u.UsedBytes
-			dbU.LastSeenBytes = u.LastSeenBytes
-			dbU.Status = u.Status
-		})
 	}
 
 	if needsSingboxRestart {
-		// Regenerate config without blocked users
-		settings, _ := s.store.GetSettings()
-		config.GenerateConfig(activeUsers, settings, "/etc/sing-box/config.json")
+		// Re-fetch from DB so config reflects the true committed state
+		freshUsers, err := s.store.GetUsers()
+		if err != nil {
+			log.Printf("Scheduler: Failed to re-fetch users for config: %v", err)
+			return
+		}
+		config.GenerateConfig(freshUsers, settings, "/etc/sing-box/config.json")
 		system.RestartSingbox()
 	}
 }
 
-// runMonthlyReset checks daily if it is the 1st day of the month
+// runMonthlyReset checks periodically if the current month has changed
 func (s *Scheduler) runMonthlyReset() {
-	ticker := time.NewTicker(24 * time.Hour)
+	// Check immediately on startup
+	s.checkMonthlyReset()
+
+	ticker := time.NewTicker(1 * time.Hour)
 	defer ticker.Stop()
 
 	for range ticker.C {
-		if time.Now().Day() == 1 {
-			s.PerformMonthlyReset()
-		}
+		s.checkMonthlyReset()
+	}
+}
+
+func (s *Scheduler) checkMonthlyReset() {
+	now := time.Now()
+	currentMonthStr := now.Format("2006-01") // e.g., "2023-11"
+
+	setts, err := s.store.GetSettings()
+	if err != nil {
+		log.Printf("Scheduler: Monthly Reset check failed: %v", err)
+		return
+	}
+
+	if setts.LastResetMonth == "" {
+		// First run ever, set it to current month but don't reset everyone's 0 usage
+		setts.LastResetMonth = currentMonthStr
+		s.store.SaveSettings(setts)
+		return
+	}
+
+	if setts.LastResetMonth != currentMonthStr {
+		log.Printf("Scheduler: New month detected (%s), executing monthly reset...", currentMonthStr)
+		s.PerformMonthlyReset()
+
+		setts.LastResetMonth = currentMonthStr
+		s.store.SaveSettings(setts)
 	}
 }
 
@@ -156,8 +189,16 @@ func (s *Scheduler) PerformMonthlyReset() {
 	if needsSingboxRestart {
 		// Re-fetch the clean list to generate config
 		cleanUsers, _ := s.store.GetUsers()
-		settings, _ := s.store.GetSettings()
-		config.GenerateConfig(cleanUsers, settings, "/etc/sing-box/config.json")
+		settings, err := s.store.GetSettings()
+		if err != nil {
+			log.Printf("Monthly Reset Error fetching settings: %v", err)
+			return
+		}
+		
+		if err := config.GenerateConfig(cleanUsers, settings, "/etc/sing-box/config.json"); err != nil {
+			log.Printf("Monthly Reset failed to generate config: %v", err)
+			return
+		}
 		system.RestartSingbox()
 	}
 }

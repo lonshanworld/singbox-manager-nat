@@ -27,5 +27,6 @@ type Settings struct {
 	ClashAPISecret  string `json:"clash_api_secret"`
 	RealityDest     string `json:"reality_dest"`
 	SubscriptionDomain string `json:"subscription_domain"`
-	TelegramBotToken    string `json:"telegram_bot_token,omitempty"`
+	TelegramBotToken   string `json:"telegram_bot_token,omitempty"`
+	LastResetMonth     string `json:"last_reset_month,omitempty"`
 }
